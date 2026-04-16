@@ -4,11 +4,15 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 
+import type { ViewerMessage } from '../../shared/messages.js';
 import {
   HOOK_API_PREFIX,
   MAX_HOOK_BODY_SIZE,
   SERVER_JSON_DIR,
   SERVER_JSON_NAME,
+  VIEWER_EVENTS_PATH,
+  VIEWER_ROUTE_PREFIX,
+  VIEWER_SSE_KEEPALIVE_MS,
 } from './constants.js';
 
 /** Discovery file written to ~/.pixel-agents/server.json so hook scripts can find the server. */
@@ -25,6 +29,7 @@ export interface ServerConfig {
 
 /** Callback invoked when a hook event is received from a provider's hook script. */
 type HookEventCallback = (providerId: string, event: Record<string, unknown>) => void;
+type ViewerBootstrapCallback = () => ViewerMessage[] | Promise<ViewerMessage[]>;
 
 /**
  * HTTP server that receives hook events from CLI tool hook scripts.
@@ -44,11 +49,33 @@ export class PixelAgentsServer {
   private config: ServerConfig | null = null;
   private ownsServer = false;
   private callback: HookEventCallback | null = null;
+  private viewerBootstrapCallback: ViewerBootstrapCallback | null = null;
+  private viewerClients = new Set<http.ServerResponse>();
+  private viewerRoot: string | null = null;
   private startTime = Date.now();
 
   /** Register a callback for incoming hook events from any provider. */
   onHookEvent(callback: HookEventCallback): void {
     this.callback = callback;
+  }
+
+  setViewerBootstrapCallback(callback: ViewerBootstrapCallback): void {
+    this.viewerBootstrapCallback = callback;
+  }
+
+  setViewerRoot(viewerRoot: string): void {
+    this.viewerRoot = viewerRoot;
+  }
+
+  broadcastViewerMessage(message: ViewerMessage): void {
+    const payload = this.formatSseEvent('message', message);
+    for (const client of [...this.viewerClients]) {
+      try {
+        client.write(payload);
+      } catch {
+        this.viewerClients.delete(client);
+      }
+    }
   }
 
   /**
@@ -75,13 +102,13 @@ export class PixelAgentsServer {
 
     return new Promise((resolve, reject) => {
       this.server = http.createServer((req, res) => {
-        this.handleRequest(req, res);
+        void this.handleRequest(req, res);
       });
 
       this.server.on('error', reject);
       this.server.setTimeout(5000);
 
-      this.server.listen(0, '127.0.0.1', () => {
+      this.server.listen(0, '0.0.0.0', () => {
         const addr = this.server?.address();
         if (addr && typeof addr === 'object') {
           this.config = {
@@ -97,7 +124,7 @@ export class PixelAgentsServer {
           this.server!.on('error', (err) => {
             console.error(`[Pixel Agents] Server: error: ${err}`);
           });
-          console.log(`[Pixel Agents] Server: listening on 127.0.0.1:${addr.port}`);
+          console.log(`[Pixel Agents] Server: listening on 0.0.0.0:${addr.port}`);
           resolve(this.config);
         } else {
           reject(new Error('Failed to get server address'));
@@ -108,6 +135,14 @@ export class PixelAgentsServer {
 
   /** Stop the HTTP server and clean up server.json (only if we own it). */
   stop(): void {
+    for (const client of this.viewerClients) {
+      try {
+        client.end();
+      } catch {
+        // ignore close errors
+      }
+    }
+    this.viewerClients.clear();
     if (this.server) {
       this.server.close();
       this.server = null;
@@ -126,11 +161,15 @@ export class PixelAgentsServer {
   }
 
   /** Top-level request router. Dispatches to health or hook handler based on method + path. */
-  private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
-    const url = req.url ?? '';
+  private async handleRequest(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<void> {
+    const requestUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
+    const pathname = requestUrl.pathname;
 
     // Health endpoint (no auth required)
-    if (req.method === 'GET' && url === '/api/health') {
+    if (req.method === 'GET' && pathname === '/api/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -142,14 +181,154 @@ export class PixelAgentsServer {
       return;
     }
 
+    if (req.method === 'GET' && pathname === VIEWER_EVENTS_PATH) {
+      await this.handleViewerEventsRequest(req, res, requestUrl);
+      return;
+    }
+
+    if (req.method === 'GET' && (pathname === VIEWER_ROUTE_PREFIX || pathname === `${VIEWER_ROUTE_PREFIX}/`)) {
+      if (pathname === VIEWER_ROUTE_PREFIX) {
+        res.writeHead(302, { Location: `${VIEWER_ROUTE_PREFIX}/` });
+        res.end();
+        return;
+      }
+      this.serveViewerFile(res, 'index.html');
+      return;
+    }
+
+    if (req.method === 'GET' && pathname.startsWith(`${VIEWER_ROUTE_PREFIX}/`)) {
+      const relativePath = pathname.slice(VIEWER_ROUTE_PREFIX.length + 1);
+      this.serveViewerFile(res, relativePath);
+      return;
+    }
+
     // Hook event endpoint: POST /api/hooks/:providerId
-    if (req.method === 'POST' && url.startsWith(HOOK_API_PREFIX + '/')) {
-      this.handleHookRequest(req, res, url);
+    if (req.method === 'POST' && pathname.startsWith(HOOK_API_PREFIX + '/')) {
+      this.handleHookRequest(req, res, pathname);
       return;
     }
 
     res.writeHead(404);
     res.end();
+  }
+
+  private async handleViewerEventsRequest(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    requestUrl: URL,
+  ): Promise<void> {
+    if (!this.isViewerAuthorized(req, requestUrl)) {
+      res.writeHead(401);
+      res.end('unauthorized');
+      return;
+    }
+
+    const bootstrapMessages = this.viewerBootstrapCallback
+      ? await Promise.resolve(this.viewerBootstrapCallback())
+      : [];
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.write(this.formatSseEvent('bootstrap', bootstrapMessages));
+
+    const keepAlive = setInterval(() => {
+      try {
+        res.write(':keepalive\n\n');
+      } catch {
+        clearInterval(keepAlive);
+      }
+    }, VIEWER_SSE_KEEPALIVE_MS);
+
+    this.viewerClients.add(res);
+    req.on('close', () => {
+      clearInterval(keepAlive);
+      this.viewerClients.delete(res);
+    });
+  }
+
+  private isViewerAuthorized(req: http.IncomingMessage, requestUrl: URL): boolean {
+    const queryToken = requestUrl.searchParams.get('token') ?? '';
+    const authHeader = req.headers['authorization'] ?? '';
+    const expectedRaw = this.config?.token ?? '';
+    const expectedBearer = `Bearer ${expectedRaw}`;
+    return (
+      this.timingSafeMatches(queryToken, expectedRaw) ||
+      this.timingSafeMatches(authHeader, expectedBearer)
+    );
+  }
+
+  private serveViewerFile(res: http.ServerResponse, relativePath: string): void {
+    if (!this.viewerRoot) {
+      res.writeHead(404);
+      res.end('viewer unavailable');
+      return;
+    }
+
+    const root = path.resolve(this.viewerRoot);
+    const targetPath = path.resolve(root, relativePath || 'index.html');
+    if (!targetPath.startsWith(root + path.sep) && targetPath !== root) {
+      res.writeHead(403);
+      res.end('forbidden');
+      return;
+    }
+
+    let filePath = targetPath;
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      filePath = path.join(root, 'index.html');
+    }
+    if (!fs.existsSync(filePath)) {
+      res.writeHead(404);
+      res.end('not found');
+      return;
+    }
+
+    res.writeHead(200, { 'Content-Type': this.getContentType(filePath) });
+    fs.createReadStream(filePath).pipe(res);
+  }
+
+  private getContentType(filePath: string): string {
+    switch (path.extname(filePath).toLowerCase()) {
+      case '.html':
+        return 'text/html; charset=utf-8';
+      case '.js':
+        return 'application/javascript; charset=utf-8';
+      case '.css':
+        return 'text/css; charset=utf-8';
+      case '.json':
+        return 'application/json; charset=utf-8';
+      case '.svg':
+        return 'image/svg+xml';
+      case '.png':
+        return 'image/png';
+      case '.jpg':
+      case '.jpeg':
+        return 'image/jpeg';
+      case '.webp':
+        return 'image/webp';
+      case '.woff':
+        return 'font/woff';
+      case '.woff2':
+        return 'font/woff2';
+      default:
+        return 'application/octet-stream';
+    }
+  }
+
+  private formatSseEvent(event: string, payload: unknown): string {
+    return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+  }
+
+  private timingSafeMatches(actual: string, expected: string): boolean {
+    const actualBuf = Buffer.from(actual);
+    const expectedBuf = Buffer.from(expected);
+    return (
+      actualBuf.length === expectedBuf.length &&
+      crypto.timingSafeEqual(actualBuf, expectedBuf)
+    );
   }
 
   /** Handle POST /api/hooks/:providerId. Validates auth, enforces body size limit, parses JSON. */

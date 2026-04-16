@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { JSONL_POLL_INTERVAL_MS } from '../server/src/constants.js';
+import { sendMessage, type MessageSender } from '../shared/messages.js';
 import {
   TERMINAL_NAME_PREFIX,
   WORKSPACE_KEY_AGENT_SEATS,
@@ -72,7 +73,7 @@ export async function launchNewTerminal(
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
   jsonlPollTimers: Map<number, ReturnType<typeof setInterval>>,
   projectScanTimerRef: { current: ReturnType<typeof setInterval> | null },
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
   folderPath?: string,
   bypassPermissions?: boolean,
@@ -136,7 +137,7 @@ export async function launchNewTerminal(
   activeAgentIdRef.current = id;
   persistAgents();
   console.log(`[Pixel Agents] Terminal: Agent ${id} - created for terminal ${terminal.name}`);
-  webview?.postMessage({ type: 'agentCreated', id, folderName });
+  sendMessage(webview, { type: 'agentCreated', id, folderName });
 
   ensureProjectScan(
     projectDir,
@@ -317,7 +318,7 @@ export function restoreAgents(
   jsonlPollTimers: Map<number, ReturnType<typeof setInterval>>,
   projectScanTimerRef: { current: ReturnType<typeof setInterval> | null },
   activeAgentIdRef: { current: number | null },
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   doPersist: () => void,
 ): void {
   const persisted = context.workspaceState.get<PersistedAgent[]>(WORKSPACE_KEY_AGENTS, []);
@@ -478,7 +479,7 @@ export function restoreAgents(
             jsonlPollTimers,
             doPersist,
           );
-          webview?.postMessage({ type: 'agentClosed', id });
+          sendMessage(webview, { type: 'agentClosed', id });
         }
       }
     }, 10_000); // 10 seconds grace period
@@ -517,7 +518,7 @@ export function restoreAgents(
 export function sendExistingAgents(
   agents: Map<number, AgentState>,
   context: vscode.ExtensionContext,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
 ): void {
   if (!webview) return;
   const agentIds: number[] = [];
@@ -546,7 +547,7 @@ export function sendExistingAgents(
     `[Pixel Agents] sendExistingAgents: agents=${JSON.stringify(agentIds)}, meta=${JSON.stringify(agentMeta)}`,
   );
 
-  webview.postMessage({
+  sendMessage(webview, {
     type: 'existingAgents',
     agents: agentIds,
     agentMeta,
@@ -559,14 +560,14 @@ export function sendExistingAgents(
 
 export function sendCurrentAgentStatuses(
   agents: Map<number, AgentState>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
 ): void {
   if (!webview) return;
   for (const [agentId, agent] of agents) {
     // Re-send active tools
     for (const [toolId, status] of agent.activeToolStatuses) {
       const toolName = agent.activeToolNames.get(toolId) ?? '';
-      webview.postMessage({
+      sendMessage(webview, {
         type: 'agentToolStart',
         id: agentId,
         toolId,
@@ -576,7 +577,7 @@ export function sendCurrentAgentStatuses(
     }
     // Re-send waiting status
     if (agent.isWaiting) {
-      webview.postMessage({
+      sendMessage(webview, {
         type: 'agentStatus',
         id: agentId,
         status: 'waiting',
@@ -584,7 +585,7 @@ export function sendCurrentAgentStatuses(
     }
     // Re-send team metadata
     if (agent.teamName) {
-      webview.postMessage({
+      sendMessage(webview, {
         type: 'agentTeamInfo',
         id: agentId,
         teamName: agent.teamName,
@@ -596,7 +597,7 @@ export function sendCurrentAgentStatuses(
     }
     // Re-send token usage
     if (agent.inputTokens > 0 || agent.outputTokens > 0) {
-      webview.postMessage({
+      sendMessage(webview, {
         type: 'agentTokenUsage',
         id: agentId,
         inputTokens: agent.inputTokens,
@@ -608,12 +609,12 @@ export function sendCurrentAgentStatuses(
 
 export function sendLayout(
   context: vscode.ExtensionContext,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   defaultLayout?: Record<string, unknown> | null,
 ): void {
   if (!webview) return;
   const result = migrateAndLoadLayout(context, defaultLayout);
-  webview.postMessage({
+  sendMessage(webview, {
     type: 'layoutLoaded',
     layout: result?.layout ?? null,
     wasReset: result?.wasReset ?? false,

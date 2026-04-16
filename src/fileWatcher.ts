@@ -37,6 +37,7 @@ import {
   PROJECT_SCAN_INTERVAL_MS,
 } from '../server/src/constants.js';
 import type { TeamProvider } from '../server/src/teamProvider.js';
+import type { MessageSender } from '../shared/messages.js';
 import { removeAgent } from './agentManager.js';
 import { TERMINAL_NAME_PREFIX } from './constants.js';
 import { cancelPermissionTimer, cancelWaitingTimer, clearAgentActivity } from './timerManager.js';
@@ -65,7 +66,7 @@ let clearDetectionDeps: {
   pollingTimers: Map<number, ReturnType<typeof setInterval>>;
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>;
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>;
-  webview: vscode.Webview | undefined;
+  webview: MessageSender | undefined;
   persistAgents: () => void;
 } | null = null;
 
@@ -77,7 +78,7 @@ export function startFileWatching(
   pollingTimers: Map<number, ReturnType<typeof setInterval>>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
 ): void {
   // Single polling approach: reliable on all platforms (macOS, Linux, WSL2, Windows).
   // Previously used triple-redundant fs.watch + fs.watchFile + setInterval, but
@@ -171,7 +172,7 @@ export function readNewLines(
   agents: Map<number, AgentState>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
 ): void {
   const agent = agents.get(agentId);
   if (!agent) return;
@@ -248,7 +249,7 @@ export function ensureProjectScan(
   pollingTimers: Map<number, ReturnType<typeof setInterval>>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
   _onAgentCreated?: (agent: AgentState) => void,
   hooksEnabledRef?: { current: boolean },
@@ -347,7 +348,7 @@ function scanForNewJsonlFiles(
   pollingTimers: Map<number, ReturnType<typeof setInterval>>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
   onAgentCreated?: (agent: AgentState) => void,
 ): void {
@@ -466,7 +467,7 @@ function adoptTerminalForFile(
   pollingTimers: Map<number, ReturnType<typeof setInterval>>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
   onAgentCreated?: (agent: AgentState) => void,
 ): void {
@@ -584,7 +585,7 @@ export function scanForTeammateFiles(
   pollingTimers: Map<number, ReturnType<typeof setInterval>>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
   onAgentCreated?: (agent: AgentState) => void,
 ): void {
@@ -777,7 +778,7 @@ export function scanAllTeammateFiles(
   pollingTimers: Map<number, ReturnType<typeof setInterval>>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
   onAgentCreated?: (agent: AgentState) => void,
 ): void {
@@ -828,7 +829,7 @@ export function adoptExternalSessionFromHook(
   pollingTimers: Map<number, ReturnType<typeof setInterval>>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
   onAgentCreated?: (agent: AgentState) => void,
 ): void {
@@ -924,7 +925,7 @@ function adoptExternalSession(
   pollingTimers: Map<number, ReturnType<typeof setInterval>>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
   folderName?: string,
 ): void {
@@ -998,7 +999,7 @@ export function startExternalSessionScanning(
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
   _jsonlPollTimers: Map<number, ReturnType<typeof setInterval>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
   watchAllSessionsRef?: { current: boolean },
   hooksEnabledRef?: { current: boolean },
@@ -1051,7 +1052,7 @@ function scanExternalDir(
   pollingTimers: Map<number, ReturnType<typeof setInterval>>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
 ): void {
   let files: string[];
@@ -1189,7 +1190,7 @@ function scanGlobalProjectDirs(
   pollingTimers: Map<number, ReturnType<typeof setInterval>>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
 ): void {
   const projectsRoot = path.join(os.homedir(), '.claude', 'projects');
@@ -1269,7 +1270,7 @@ export function startStaleExternalAgentCheck(
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
   jsonlPollTimers: Map<number, ReturnType<typeof setInterval>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
   hooksEnabledRef?: { current: boolean },
 ): ReturnType<typeof setInterval> {
@@ -1323,7 +1324,7 @@ export function reassignAgentToFile(
   pollingTimers: Map<number, ReturnType<typeof setInterval>>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
   persistAgents: () => void,
 ): void {
   const agent = agents.get(agentId);

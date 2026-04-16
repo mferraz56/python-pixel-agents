@@ -44,6 +44,9 @@ export const SERVER_JSON_DIR = '.pixel-agents';
 export const SERVER_JSON_NAME = 'server.json';
 export const HOOK_SCRIPTS_DIR = '.pixel-agents/hooks';
 export const HOOK_API_PREFIX = '/api/hooks';
+export const VIEWER_ROUTE_PREFIX = '/viewer';
+export const VIEWER_EVENTS_PATH = '/api/viewer/events';
+export const VIEWER_SSE_KEEPALIVE_MS = 15_000;
 
 // Claude-specific constants live in providers/hook/claude/constants.ts.
 // Re-exported here for backward-compatibility of existing callers that import

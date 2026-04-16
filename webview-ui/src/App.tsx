@@ -21,7 +21,7 @@ import { EditorToolbar } from './office/editor/EditorToolbar.js';
 import { OfficeState } from './office/engine/officeState.js';
 import { isRotatable } from './office/layout/furnitureCatalog.js';
 import { EditTool } from './office/types.js';
-import { isBrowserRuntime } from './runtime.js';
+import { isBrowserRuntime, isRemoteViewerRuntime } from './runtime.js';
 import { vscode } from './vscodeApi.js';
 
 // Game state lives outside React — updated imperatively by message handlers
@@ -39,9 +39,21 @@ function App() {
   // Browser runtime (dev or static dist): dispatch mock messages after the
   // useExtensionMessages listener has been registered.
   useEffect(() => {
+    let disposeRemoteViewer: (() => void) | undefined;
+
     if (isBrowserRuntime) {
-      void import('./browserMock.js').then(({ dispatchMockMessages }) => dispatchMockMessages());
+      if (isRemoteViewerRuntime) {
+        void import('./remoteViewer.js').then(({ startRemoteViewerStream }) => {
+          disposeRemoteViewer = startRemoteViewerStream();
+        });
+      } else {
+        void import('./browserMock.js').then(({ dispatchMockMessages }) => dispatchMockMessages());
+      }
     }
+
+    return () => {
+      disposeRemoteViewer?.();
+    };
   }, []);
 
   const editor = useEditorActions(getOfficeState, editorState);
@@ -117,7 +129,7 @@ function App() {
 
   const [editorTickForKeyboard, setEditorTickForKeyboard] = useState(0);
   useEditorKeyboard(
-    editor.isEditMode,
+    !isRemoteViewerRuntime && editor.isEditMode,
     editorState,
     editor.handleDeleteSelected,
     editor.handleRotateSelected,
@@ -129,10 +141,12 @@ function App() {
   );
 
   const handleCloseAgent = useCallback((id: number) => {
+    if (isRemoteViewerRuntime) return;
     vscode.postMessage({ type: 'closeAgent', id });
   }, []);
 
   const handleClick = useCallback((agentId: number) => {
+    if (isRemoteViewerRuntime) return;
     // If clicked agent is a sub-agent, focus the parent's terminal instead
     const os = getOfficeState();
     const meta = os.subagentMeta.get(agentId);
@@ -141,6 +155,7 @@ function App() {
   }, []);
 
   const officeState = getOfficeState();
+  const showLocalControls = !isRemoteViewerRuntime;
 
   // Force dependency on editorTickForKeyboard to propagate keyboard-triggered re-renders
   void editorTickForKeyboard;
@@ -248,6 +263,7 @@ function App() {
             panRef={editor.panRef}
             onCloseAgent={handleCloseAgent}
             alwaysShowOverlay={alwaysShowOverlay}
+            canCloseAgents={showLocalControls}
           />
         </>
       ) : (
@@ -319,14 +335,16 @@ function App() {
         </div>
       </Modal>
 
-      <BottomToolbar
-        isEditMode={editor.isEditMode}
-        onOpenClaude={editor.handleOpenClaude}
-        onToggleEditMode={editor.handleToggleEditMode}
-        isSettingsOpen={isSettingsOpen}
-        onToggleSettings={() => setIsSettingsOpen((v) => !v)}
-        workspaceFolders={workspaceFolders}
-      />
+      {showLocalControls && (
+        <BottomToolbar
+          isEditMode={editor.isEditMode}
+          onOpenClaude={editor.handleOpenClaude}
+          onToggleEditMode={editor.handleToggleEditMode}
+          isSettingsOpen={isSettingsOpen}
+          onToggleSettings={() => setIsSettingsOpen((v) => !v)}
+          workspaceFolders={workspaceFolders}
+        />
+      )}
 
       <VersionIndicator
         currentVersion={extensionVersion}
@@ -341,27 +359,29 @@ function App() {
         currentVersion={extensionVersion}
       />
 
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        isDebugMode={isDebugMode}
-        onToggleDebugMode={handleToggleDebugMode}
-        alwaysShowOverlay={alwaysShowOverlay}
-        onToggleAlwaysShowOverlay={handleToggleAlwaysShowOverlay}
-        externalAssetDirectories={externalAssetDirectories}
-        watchAllSessions={watchAllSessions}
-        onToggleWatchAllSessions={() => {
-          const newVal = !watchAllSessions;
-          setWatchAllSessions(newVal);
-          vscode.postMessage({ type: 'setWatchAllSessions', enabled: newVal });
-        }}
-        hooksEnabled={hooksEnabled}
-        onToggleHooksEnabled={() => {
-          const newVal = !hooksEnabled;
-          setHooksEnabled(newVal);
-          vscode.postMessage({ type: 'setHooksEnabled', enabled: newVal });
-        }}
-      />
+      {showLocalControls && (
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          isDebugMode={isDebugMode}
+          onToggleDebugMode={handleToggleDebugMode}
+          alwaysShowOverlay={alwaysShowOverlay}
+          onToggleAlwaysShowOverlay={handleToggleAlwaysShowOverlay}
+          externalAssetDirectories={externalAssetDirectories}
+          watchAllSessions={watchAllSessions}
+          onToggleWatchAllSessions={() => {
+            const newVal = !watchAllSessions;
+            setWatchAllSessions(newVal);
+            vscode.postMessage({ type: 'setWatchAllSessions', enabled: newVal });
+          }}
+          hooksEnabled={hooksEnabled}
+          onToggleHooksEnabled={() => {
+            const newVal = !hooksEnabled;
+            setHooksEnabled(newVal);
+            vscode.postMessage({ type: 'setHooksEnabled', enabled: newVal });
+          }}
+        />
+      )}
 
       {showMigrationNotice && (
         <MigrationNotice onDismiss={() => setMigrationNoticeDismissed(true)} />

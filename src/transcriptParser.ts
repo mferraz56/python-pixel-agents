@@ -1,5 +1,4 @@
 import * as path from 'path';
-import type * as vscode from 'vscode';
 
 const debug = process.env.PIXEL_AGENTS_DEBUG !== '0';
 
@@ -10,6 +9,7 @@ import {
   TOOL_DONE_DELAY_MS,
 } from '../server/src/constants.js';
 import type { HookProvider } from '../server/src/provider.js';
+import type { MessageSender } from '../shared/messages.js';
 import {
   cancelPermissionTimer,
   cancelWaitingTimer,
@@ -92,7 +92,7 @@ export function processTranscriptLine(
   agents: Map<number, AgentState>,
   waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
 ): void {
   const agent = agents.get(agentId);
   if (!agent) return;
@@ -436,7 +436,7 @@ function processProgressRecord(
   agents: Map<number, AgentState>,
   _waitingTimers: Map<number, ReturnType<typeof setTimeout>>,
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
-  webview: vscode.Webview | undefined,
+  webview: MessageSender | undefined,
 ): void {
   const agent = agents.get(agentId);
   if (!agent) return;

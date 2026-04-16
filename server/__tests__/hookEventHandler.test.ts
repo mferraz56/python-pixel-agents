@@ -59,7 +59,7 @@ describe('HookEventHandler', () => {
       agents,
       waitingTimers,
       permissionTimers,
-      () => mockWebview as unknown as import('vscode').Webview,
+      () => mockWebview,
       claudeProvider,
     );
   });

@@ -8,9 +8,14 @@
 
 declare function acquireVsCodeApi(): unknown;
 
-type Runtime = 'vscode' | 'browser';
-// Future: 'cursor' | 'windsurf' | 'electron' | etc.
+type Runtime = 'vscode' | 'browser' | 'browser-remote';
 
-const runtime: Runtime = typeof acquireVsCodeApi !== 'undefined' ? 'vscode' : 'browser';
+const hasVsCodeApi = typeof acquireVsCodeApi !== 'undefined';
+const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+const hasRemoteToken = !!searchParams?.get('token');
 
-export const isBrowserRuntime = runtime === 'browser';
+const runtime: Runtime = hasVsCodeApi ? 'vscode' : hasRemoteToken ? 'browser-remote' : 'browser';
+
+export const isVsCodeRuntime = runtime === 'vscode';
+export const isBrowserRuntime = runtime !== 'vscode';
+export const isRemoteViewerRuntime = runtime === 'browser-remote';

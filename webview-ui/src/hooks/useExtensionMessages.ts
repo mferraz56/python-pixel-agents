@@ -9,6 +9,7 @@ import { setCharacterTemplates } from '../office/sprites/spriteData.js';
 import { extractToolName } from '../office/toolUtils.js';
 import type { OfficeLayout, ToolActivity } from '../office/types.js';
 import { setWallSprites } from '../office/wallTiles.js';
+import { isVsCodeRuntime } from '../runtime.js';
 import { vscode } from '../vscodeApi.js';
 
 export interface SubagentCharacter {
@@ -120,6 +121,24 @@ export function useExtensionMessages(
     const handler = (e: MessageEvent) => {
       const msg = e.data;
       const os = getOfficeState();
+
+      if (msg.type === 'viewerReset') {
+        pendingAgents = [];
+        layoutReadyRef.current = false;
+        os.reset();
+        setAgents([]);
+        setSelectedAgent(null);
+        setAgentTools({});
+        setAgentStatuses({});
+        setSubagentTools({});
+        setSubagentCharacters([]);
+        setLayoutReady(false);
+        setLayoutWasReset(false);
+        setLoadedAssets(undefined);
+        setWorkspaceFolders([]);
+        setExternalAssetDirectories([]);
+        return;
+      }
 
       if (msg.type === 'layoutLoaded') {
         // Skip external layout updates while editor has unsaved changes
@@ -509,7 +528,9 @@ export function useExtensionMessages(
       }
     };
     window.addEventListener('message', handler);
-    vscode.postMessage({ type: 'webviewReady' });
+    if (isVsCodeRuntime) {
+      vscode.postMessage({ type: 'webviewReady' });
+    }
     return () => window.removeEventListener('message', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getOfficeState]);

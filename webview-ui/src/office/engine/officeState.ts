@@ -63,6 +63,23 @@ export class OfficeState {
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
   }
 
+  reset(layout?: OfficeLayout): void {
+    this.layout = layout || createDefaultLayout();
+    this.tileMap = layoutToTileMap(this.layout);
+    this.seats = layoutToSeats(this.layout.furniture);
+    this.blockedTiles = getBlockedTiles(this.layout.furniture);
+    this.furniture = layoutToFurnitureInstances(this.layout.furniture);
+    this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
+    this.characters.clear();
+    this.selectedAgentId = null;
+    this.cameraFollowId = null;
+    this.hoveredAgentId = null;
+    this.hoveredTile = null;
+    this.subagentIdMap.clear();
+    this.subagentMeta.clear();
+    this.nextSubagentId = -1;
+  }
+
   /** Rebuild all derived state from a new layout. Reassigns existing characters.
    *  @param shift Optional pixel shift to apply when grid expands left/up */
   rebuildFromLayout(layout: OfficeLayout, shift?: { col: number; row: number }): void {
