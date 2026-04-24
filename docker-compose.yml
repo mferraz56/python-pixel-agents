@@ -1,0 +1,32 @@
+services:
+  pixel-agents-py:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: python-pixel-agents:0.1.0
+    container_name: pixel-agents-py
+    ports:
+      - "8765:8765"
+    environment:
+      PIXEL_AGENTS_TOKEN: ${PIXEL_AGENTS_TOKEN:-dev-token-change-me}
+      PIXEL_AGENTS_HOST: 0.0.0.0
+      PIXEL_AGENTS_PORT: "8765"
+      PIXEL_AGENTS_REPLAY_DIR: /data/replay
+      PIXEL_AGENTS_DEBUG_LOG_DIR: /copilot-debug-logs
+      PIXEL_AGENTS_OTEL_TRACES_FILE: /otel-data/copilot-traces.jsonl
+      PIXEL_AGENTS_ADAPTERS_REPLAY_FROM_START: ${PIXEL_AGENTS_ADAPTERS_REPLAY_FROM_START:-false}
+    volumes:
+      - replay-data:/data/replay
+      # otel-data is provisioned by the workspace-level
+      # docker-compose.ai-observability.yml (otel-collector + aspire-dashboard).
+      # Bring that stack up first:  docker compose -f docker-compose.ai-observability.yml up -d
+      - otel-data:/otel-data:ro
+      # Live tail of Copilot Chat debug logs (read-only).
+      - ${COPILOT_DEBUG_LOG_DIR:-/path/to/copilot-debug-logs}:/copilot-debug-logs:ro
+    restart: unless-stopped
+
+volumes:
+  replay-data:
+  otel-data:
+    external: true
+    name: python-pixel-agents_otel-data

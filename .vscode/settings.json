@@ -1,0 +1,7 @@
+{
+    "github.copilot.chat.agentDebugLog.fileLogging.enabled": true,
+	"github.copilot.chat.copilotMemory.enabled": true,
+  	"github.copilot.chat.otel.enabled": true,
+  	"github.copilot.chat.otel.exporterType": "otlp-grpc",
+  	"github.copilot.chat.otel.otlpEndpoint": "http://localhost:4317"
+}

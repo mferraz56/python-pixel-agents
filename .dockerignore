@@ -1,0 +1,11 @@
+# Keep build context lean.
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+data
+viewer-ui/node_modules
+viewer-ui/dist
+viewer-ui/.vite
+tests/_data
+.git
